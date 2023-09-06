@@ -32,12 +32,23 @@ namespace Rasp
         private Dictionary<string, SortedDictionary<string, List<List<string>>>> buildingsScheduleMap;
         private List<string> fullClassroomsList;
 
+        bool criticalFilesDoesntExist;
+
         Thread thread;
 
         public MainForm()
         {
             fullClassroomsList = new List<string>();
             isNotepadRunning = false;
+
+            if (!File.Exists("./shabaud.xlsx") || !File.Exists("./classrooms.txt"))
+            {
+                criticalFilesDoesntExist = true;
+            }
+            else
+            {
+                criticalFilesDoesntExist = false;
+            }
 
             InitializeComponent();
 
@@ -117,9 +128,6 @@ namespace Rasp
                             try
                             {
                                 teacherName = Regex.Match(teacherSection, "[а-я]|[А-Я].*</P>").Value.Replace("</P>", "").Trim();
-                                //teacherSection.Substring(
-                                //teacherSection.IndexOf(Regex(r"[а-я]|[А-Я]")),
-                                //teacherSection.indexOf('</P>'));
                             }
                             catch (Exception ex)
                             {
@@ -579,6 +587,13 @@ namespace Rasp
         private void MainForm_Shown(object sender, EventArgs e)
         {
             allElementsStatus(false);
+            if (criticalFilesDoesntExist)
+            {
+                classroomEditButton.Enabled = false;
+                MessageBox.Show($"Отсутствуют необходимые файлы. Поместите файлы shabaud.xlsx и classrooms.txt рядом с исполняемым файлом и перезапустите программу", 
+                    "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
             runThread();
         }
 
@@ -625,7 +640,7 @@ namespace Rasp
                         isNotepadRunning = false;
                     }
                 }
-                catch(Exception ex)
+                catch (Exception ex)
                 {
                     isNotepadRunning = false;
                     MessageBox.Show($"Ошибка открытия блокнота\n{ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
