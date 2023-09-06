@@ -590,7 +590,7 @@ namespace Rasp
             if (criticalFilesDoesntExist)
             {
                 classroomEditButton.Enabled = false;
-                MessageBox.Show($"Отсутствуют необходимые файлы. Поместите файлы shabaud.xlsx и classrooms.txt рядом с исполняемым файлом и перезапустите программу", 
+                MessageBox.Show($"Отсутствуют необходимые файлы. Поместите файлы shabaud.xlsx и classrooms.txt рядом с исполняемым файлом и перезапустите программу",
                     "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -643,9 +643,18 @@ namespace Rasp
                 catch (Exception ex)
                 {
                     isNotepadRunning = false;
-                    MessageBox.Show($"Ошибка открытия блокнота\n{ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show($"Ошибка открытия блокнота\n{ex.Message}", "Разработчики", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }));
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show($"Веселов А.В.\n" +
+                "Кафедра СИ, 2017 - 2021\n" +
+                "Суворов А.Н.\n" +
+                "Кафедра ПИиИИ, 2023\n" +
+                "ВСГУТУ", "Информация", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 }

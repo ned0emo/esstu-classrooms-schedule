@@ -48,6 +48,7 @@
             this.label2 = new System.Windows.Forms.Label();
             this.saveButton = new System.Windows.Forms.Button();
             this.classroomEditButton = new System.Windows.Forms.Button();
+            this.infoButton = new System.Windows.Forms.Button();
             ((System.ComponentModel.ISupportInitialize)(this.dataGridView1)).BeginInit();
             this.SuspendLayout();
             // 
@@ -177,7 +178,7 @@
             // 
             this.updateButton.Anchor = System.Windows.Forms.AnchorStyles.Top;
             this.updateButton.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(204)));
-            this.updateButton.Location = new System.Drawing.Point(457, 9);
+            this.updateButton.Location = new System.Drawing.Point(457, 8);
             this.updateButton.Name = "updateButton";
             this.updateButton.Size = new System.Drawing.Size(121, 30);
             this.updateButton.TabIndex = 0;
@@ -193,7 +194,7 @@
             this.textBox1.Multiline = true;
             this.textBox1.Name = "textBox1";
             this.textBox1.ReadOnly = true;
-            this.textBox1.Size = new System.Drawing.Size(412, 68);
+            this.textBox1.Size = new System.Drawing.Size(376, 68);
             this.textBox1.TabIndex = 7;
             // 
             // progressBar1
@@ -231,7 +232,7 @@
             // 
             this.saveButton.Anchor = System.Windows.Forms.AnchorStyles.Top;
             this.saveButton.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(204)));
-            this.saveButton.Location = new System.Drawing.Point(330, 9);
+            this.saveButton.Location = new System.Drawing.Point(330, 8);
             this.saveButton.Name = "saveButton";
             this.saveButton.Size = new System.Drawing.Size(121, 30);
             this.saveButton.TabIndex = 11;
@@ -242,12 +243,23 @@
             // 
             this.classroomEditButton.Anchor = System.Windows.Forms.AnchorStyles.Top;
             this.classroomEditButton.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(204)));
-            this.classroomEditButton.Location = new System.Drawing.Point(330, 47);
+            this.classroomEditButton.Location = new System.Drawing.Point(330, 48);
             this.classroomEditButton.Name = "classroomEditButton";
             this.classroomEditButton.Size = new System.Drawing.Size(248, 30);
             this.classroomEditButton.TabIndex = 12;
             this.classroomEditButton.Text = "Редактировать список аудиторий";
             this.classroomEditButton.Click += new System.EventHandler(this.classroomEditButton_Click);
+            // 
+            // infoButton
+            // 
+            this.infoButton.Font = new System.Drawing.Font("Microsoft Sans Serif", 14.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(204)));
+            this.infoButton.Location = new System.Drawing.Point(966, 8);
+            this.infoButton.Name = "infoButton";
+            this.infoButton.Size = new System.Drawing.Size(30, 30);
+            this.infoButton.TabIndex = 14;
+            this.infoButton.Text = "i";
+            this.infoButton.UseVisualStyleBackColor = true;
+            this.infoButton.Click += new System.EventHandler(this.button1_Click);
             // 
             // MainForm
             // 
@@ -257,6 +269,7 @@
             this.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
             this.BackColor = System.Drawing.SystemColors.Control;
             this.ClientSize = new System.Drawing.Size(1008, 446);
+            this.Controls.Add(this.infoButton);
             this.Controls.Add(this.classroomEditButton);
             this.Controls.Add(this.saveButton);
             this.Controls.Add(this.buildingComboBox);
@@ -298,6 +311,7 @@
         private System.Windows.Forms.Label label2;
         private System.Windows.Forms.Button saveButton;
         private System.Windows.Forms.Button classroomEditButton;
+        private System.Windows.Forms.Button infoButton;
     }
 }
 
