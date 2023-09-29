@@ -33,13 +33,21 @@ namespace Rasp
         private List<string> fullClassroomsList;
 
         bool criticalFilesDoesntExist;
+        bool excelInterruptFlag;
 
-        Thread thread;
+        Thread mainLoadThread;
+        Thread excelSavingThread;
+        List<Thread> depLoadThreads;
+
+        Excel.Application excelApp = null;
+        Excel.Workbooks workbooks = null;
+        Excel.Workbook workbook = null;
 
         public MainForm()
         {
             fullClassroomsList = new List<string>();
             isNotepadRunning = false;
+            excelInterruptFlag = false;
 
             if (!File.Exists("./shabaud.xlsx") || !File.Exists("./classrooms.txt"))
             {
@@ -49,6 +57,9 @@ namespace Rasp
             {
                 criticalFilesDoesntExist = false;
             }
+
+            depLoadThreads = new List<Thread>();
+            excelSavingThread = null;
 
             InitializeComponent();
 
@@ -106,9 +117,20 @@ namespace Rasp
                 ["15 корпус"] = new SortedDictionary<string, List<List<string>>>(),
             };
 
-            async void loadDepartmentPages(List<string> depLinks)
+            async void loadDepartmentPages(object depLinksObj)//List<string> depLinks)
             {
                 int localErrorCount = 0;
+                List<string> depLinks;
+                try
+                {
+                    depLinks = depLinksObj as List<string>;
+                }
+                catch (Exception ex)
+                {
+                    logs += ex.Message + new StackTrace(ex, true).GetFrame(0).GetFileLineNumber() + "\r\n";
+                    errorCount++;
+                    return;
+                }
 
                 ///Загрузка и обработка всех страниц с кафедрами
                 foreach (string link in depLinks)
@@ -131,7 +153,7 @@ namespace Rasp
                             }
                             catch (Exception ex)
                             {
-                                logs += ex.Message + new StackTrace(ex, true).GetFrame(0).GetFileLineNumber() + "\n";
+                                logs += ex.Message + new StackTrace(ex, true).GetFrame(0).GetFileLineNumber() + "\r\n";
                             }
 
                             var daysOfWeekFromPage =
@@ -196,12 +218,28 @@ namespace Rasp
                                         };
                                     }
 
-                                    var finalLesson = $"{teacherName} {fullLesson.Replace(classroom, "")}".Replace('\n', ' ').Replace('\r', ' ');
-                                    if (buildingsScheduleMap[building][classroom][j][i].Length <
-                                        $"{teacherName} {fullLesson.Replace(classroom, "")}".Length)
+                                    fullLesson = fullLesson.Replace(classroom, "");
+                                    fullLesson = Regex.Replace(fullLesson, "и/д|пр\\.|д/кл|д/к|\\s+а\\.|\\s+пр\\s+", "");
+                                    fullLesson = Regex.Replace(fullLesson, "\\s+", " ");
+
+                                    if (fullLesson.Length > 40)
                                     {
-                                        buildingsScheduleMap[building][classroom][j][i] =
-                                            $"{teacherName} {fullLesson.Replace(classroom, "")}";
+                                        string tmp = "";
+                                        var words = Regex.Split(fullLesson, "\\s");
+                                        foreach (string word in words)
+                                        {
+                                            if (word.Length < 1) continue;
+
+                                            tmp += " ";
+                                            tmp += word.Length > 7 && !word.Contains('.') ? word.Substring(0, 7) : word;
+                                        }
+                                        fullLesson = tmp;
+                                    }
+
+                                    var finalLesson = $"{teacherName} {fullLesson.Replace(classroom, "")}";
+                                    if (buildingsScheduleMap[building][classroom][j][i].Length < finalLesson.Length)
+                                    {
+                                        buildingsScheduleMap[building][classroom][j][i] = finalLesson;
                                     }
 
                                     i++;
@@ -219,7 +257,7 @@ namespace Rasp
                     }
                     catch (Exception ex)
                     {
-                        logs += ex.Message + new StackTrace(ex, true).GetFrame(0).GetFileLineNumber() + "\n";
+                        logs += ex.Message + new StackTrace(ex, true).GetFrame(0).GetFileLineNumber() + "\r\n";
 
                         localErrorCount++;
                     }
@@ -277,9 +315,17 @@ namespace Rasp
 
                 /// Собственно [threadCount] асинхронных потоков по загрузке страниц. Далее
                 /// ождиание окончания их работы с отображением прогресса.
+                foreach (var depThread in depLoadThreads)
+                {
+                    depThread.Abort();
+                }
+                depLoadThreads.Clear();
+
                 for (int iList = 0; iList < threadCount; iList++)
                 {
-                    loadDepartmentPages(departmentLinks[iList]);
+                    depLoadThreads.Add(new Thread(new ParameterizedThreadStart(loadDepartmentPages)));
+                    depLoadThreads[iList].Start(departmentLinks[iList]);
+                    //loadDepartmentPages(departmentLinks[iList]);
                 }
 
                 do
@@ -331,7 +377,7 @@ namespace Rasp
                 {
                     updateButton.Enabled = true;
                 }));
-                logs += ex.Message + new StackTrace(ex, true).GetFrame(0).GetFileLineNumber() + "\n";
+                logs += ex.Message + new StackTrace(ex, true).GetFrame(0).GetFileLineNumber() + "\r\n";
             }
 
             if (logs.Length > 0)
@@ -411,7 +457,7 @@ namespace Rasp
 
         private void updateButton_Click(object sender, EventArgs e)
         {
-            if (thread.ThreadState != System.Threading.ThreadState.Running) runThread();
+            if (mainLoadThread.ThreadState != System.Threading.ThreadState.Running) runThread();
         }
 
         public void showCurrentSchedule()
@@ -431,7 +477,7 @@ namespace Rasp
             }
         }
 
-        private async Task saveFiles()
+        private async void saveFiles()
         {
             List<string> classroomsList;
             try
@@ -441,13 +487,14 @@ namespace Rasp
             catch (Exception ex)
             {
                 MessageBox.Show($"Ошибка открытия списка аудиторий\n{ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Invoke(new Action(() =>
+                {
+                    allElementsStatus(true);
+                }));
                 return;
             }
 
             string fileName = Application.StartupPath + "/shabaud.xlsx";
-            Excel.Application excelApp = null;
-            Excel.Workbooks workbooks = null;
-            Excel.Workbook workbook = null;
             Excel.Sheets sheets;
             Excel.Worksheet sheet;
 
@@ -457,14 +504,25 @@ namespace Rasp
                 excelApp.Visible = false;
                 //Книга.
                 workbooks = excelApp.Workbooks;
+
+                excelApp.Workbooks.Open(fileName);
+                workbook = workbooks[1];
+                //Получаем массив ссылок на листы выбранной книги
+                sheets = workbook.Worksheets;
+                //Выбираем лист 1
+                sheet = (Excel.Worksheet)sheets.get_Item(1);
             }
             catch (Exception ex)
             {
-                if (workbook != null) workbook.Close();
-                if (workbooks != null) workbooks.Close();
-                if (excelApp != null) excelApp.Quit();
+                workbook?.Close();
+                workbooks?.Close();
+                excelApp?.Quit();
 
                 MessageBox.Show($"Ошибка открытия Excel\n{ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Invoke(new Action(() =>
+                {
+                    allElementsStatus(true);
+                }));
                 return;
             }
 
@@ -476,7 +534,14 @@ namespace Rasp
             }
             catch (Exception ex)
             {
+                workbook?.Close();
+                workbooks?.Close();
+                excelApp?.Quit();
                 MessageBox.Show($"Ошибка создания папки для сохранения\n{ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Invoke(new Action(() =>
+                {
+                    allElementsStatus(true);
+                }));
                 return;
             }
 
@@ -485,22 +550,20 @@ namespace Rasp
 
             foreach (string classroom in classroomsList)
             {
+                if (excelInterruptFlag) break;
+
                 if (!fullClassroomsList.Contains(classroom))
                 {
                     progress++;
-                    progressBar1.Value = (int)((double)progress / (double)classroomsList.Count * 100);
+                    Invoke(new Action(() =>
+                    {
+                        progressBar1.Value = (int)((double)progress / (double)classroomsList.Count * 100);
+                    }));
                     continue;
                 }
 
                 try
                 {
-                    excelApp.Workbooks.Open(fileName);
-                    workbook = workbooks[1];
-                    //Получаем массив ссылок на листы выбранной книги
-                    sheets = workbook.Worksheets;
-                    //Выбираем лист 1
-                    sheet = (Excel.Worksheet)sheets.get_Item(1);
-
                     var excelcells = (Excel.Range)sheet.Cells[1, 1];
                     excelcells.Value2 = classroom;
 
@@ -510,7 +573,7 @@ namespace Rasp
                     {
                         if (dayOfWeekNum > 7)
                         {
-                            lessonDivider = 7;
+                            lessonDivider = 8;
                             dayOfWeekShift = 6;
                         }
                         else
@@ -523,22 +586,21 @@ namespace Rasp
                         {
                             excelcells = (Excel.Range)sheet.Cells[lessonNum + lessonDivider, dayOfWeekNum - dayOfWeekShift];
 
-                            //TODO: изменить десигн шаблона
                             excelcells.Value2 = buildingsScheduleMap[getBuildingByClassroom(classroom) + " корпус"][classroom][dayOfWeekNum - 2][lessonNum - 3];
-                            //Aud[selected].getsubject(m - 2 + plus, (n - 3) / 2);
                         }
                     }
 
                     sheet.SaveAs(outputDir + $"/{classroom.Replace('/', '.')}.xlsx");
 
-                    if (workbook != null) workbook.Close();
                     progress++;
-                    progressBar1.Value = (int)((double)progress / (double)classroomsList.Count * 100);
+                    Invoke(new Action(() =>
+                    {
+                        progressBar1.Value = (int)((double)progress / (double)classroomsList.Count * 100);
+                    }));
                 }
                 catch (Exception ex)
                 {
                     isSuccess = false;
-                    if (workbook != null) workbooks.Close();
                     MessageBox.Show($"Ошибка создания файла расписания\n{ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     break;
                 }
@@ -550,11 +612,17 @@ namespace Rasp
                     "Информация", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
 
-            if (workbooks != null) workbooks.Close();
-            if (excelApp != null) excelApp.Quit();
+            workbook?.Close();
+            workbooks?.Close();
+            excelApp?.Quit();
+
+            Invoke(new Action(() =>
+            {
+                allElementsStatus(true);
+            }));
         }
 
-        private async void Form1_KeyDown(object sender, KeyEventArgs e)
+        private void Form1_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.F5 && updateButton.Enabled)
             {
@@ -565,8 +633,9 @@ namespace Rasp
                 if (saveButton.Enabled)
                 {
                     allElementsStatus(false);
-                    await saveFiles();
-                    allElementsStatus(true);
+                    excelSavingThread = new Thread(saveFiles);
+                    excelSavingThread.Start();
+                    //allElementsStatus(true);
                 }
             }
         }
@@ -608,17 +677,19 @@ namespace Rasp
                 textBox1.Text = dataGridView1.CurrentCell.Value.ToString();
         }
 
-        private async void saveButton_Click(object sender, EventArgs e)
+        private void saveButton_Click(object sender, EventArgs e)
         {
             allElementsStatus(false);
-            await saveFiles();
-            allElementsStatus(true);
+            excelSavingThread = new Thread(saveFiles);
+            excelSavingThread.Start();
+            //await saveFiles();
+            //allElementsStatus(true);
         }
 
         private void runThread()
         {
-            thread = new Thread(new ThreadStart(loadClassroomsSchedule));
-            thread.Start();
+            mainLoadThread = new Thread(new ThreadStart(loadClassroomsSchedule));
+            mainLoadThread.Start();
         }
 
         private async void classroomEditButton_Click(object sender, EventArgs e)
@@ -655,6 +726,17 @@ namespace Rasp
                 "Суворов А.Н.\n" +
                 "Кафедра ПИиИИ, 2023\n" +
                 "ВСГУТУ", "Информация", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            excelInterruptFlag = true;
+            mainLoadThread.Abort();
+
+            foreach (var depThread in depLoadThreads)
+            {
+                depThread.Abort();
+            }
         }
     }
 }
