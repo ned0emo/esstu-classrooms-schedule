@@ -37,7 +37,11 @@ namespace Rasp
 
         Thread mainLoadThread;
         Thread excelSavingThread;
-        List<Thread> depLoadThreads;
+
+        delegate Task loadDepartmentPages(object depLinksObj);
+        //List<loadDepartmentPages> depLoadThreads;
+        List<Task> runningThreads;
+        bool abort;
 
         Excel.Application excelApp = null;
         Excel.Workbooks workbooks = null;
@@ -58,8 +62,10 @@ namespace Rasp
                 criticalFilesDoesntExist = false;
             }
 
-            depLoadThreads = new List<Thread>();
+            //depLoadThreads = new List<loadDepartmentPages>();
+            runningThreads = new List<Task>();
             excelSavingThread = null;
+            abort = false;
 
             InitializeComponent();
 
@@ -117,7 +123,10 @@ namespace Rasp
                 ["15 корпус"] = new SortedDictionary<string, List<List<string>>>(),
             };
 
-            async void loadDepartmentPages(object depLinksObj)//List<string> depLinks)
+            /// 
+            /// ---------------------------- ЗДЕСЬ!!!!!!!!! -----------------------------------
+            /// 
+            async Task loadDepartmentPages(object depLinksObj)//List<string> depLinks)
             {
                 int localErrorCount = 0;
                 List<string> depLinks;
@@ -135,6 +144,7 @@ namespace Rasp
                 ///Загрузка и обработка всех страниц с кафедрами
                 foreach (string link in depLinks)
                 {
+                    if (abort) return;
                     try
                     {
                         var splittedDepartmentPage =
@@ -313,24 +323,30 @@ namespace Rasp
                     i++;
                 }
 
+                /// Чистка старых потоков при внезапном обновлении
+                abort = true;
+                foreach (var task in runningThreads)
+                {
+                    await task;
+                }
+                //depLoadThreads.Clear();
+                runningThreads.Clear();
+                abort = false;
+
                 /// Собственно [threadCount] асинхронных потоков по загрузке страниц. Далее
                 /// ождиание окончания их работы с отображением прогресса.
-                foreach (var depThread in depLoadThreads)
-                {
-                    depThread.Abort();
-                }
-                depLoadThreads.Clear();
-
                 for (int iList = 0; iList < threadCount; iList++)
                 {
-                    depLoadThreads.Add(new Thread(new ParameterizedThreadStart(loadDepartmentPages)));
-                    depLoadThreads[iList].Start(departmentLinks[iList]);
+                    //depLoadThreads.Add(loadDepartmentPages);
+                    runningThreads.Add(loadDepartmentPages(departmentLinks[iList]));
+                    //depLoadThreads.Add(new Thread(new ParameterizedThreadStart(loadDepartmentPages)));
+                    //depLoadThreads[iList].Start(departmentLinks[iList]);
                     //loadDepartmentPages(departmentLinks[iList]);
                 }
 
                 do
                 {
-                    await Task.Delay(500);
+                    await Task.Delay(1000);
 
                     Invoke(new Action(() =>
                     {
@@ -686,6 +702,9 @@ namespace Rasp
             //allElementsStatus(true);
         }
 
+        /// <summary>
+        /// Запуск
+        /// </summary>
         private void runThread()
         {
             mainLoadThread = new Thread(new ThreadStart(loadClassroomsSchedule));
@@ -728,14 +747,15 @@ namespace Rasp
                 "ВСГУТУ", "Информация", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
-        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+        private async void MainForm_FormClosing(object sender, FormClosingEventArgs e)
         {
             excelInterruptFlag = true;
             mainLoadThread.Abort();
 
-            foreach (var depThread in depLoadThreads)
+            abort = true;
+            foreach (var task in runningThreads)
             {
-                depThread.Abort();
+                await task;
             }
         }
     }
