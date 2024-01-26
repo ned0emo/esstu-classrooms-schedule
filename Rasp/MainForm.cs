@@ -15,33 +15,50 @@ using Microsoft.Office.Core;
 using SheduleSI;
 using System.Diagnostics;
 using System.Threading;
+using System.Linq.Expressions;
 
 namespace Rasp
 {
     public partial class MainForm : Form
     {
+        /// <summary>
+        /// Задержка перед загрузкой каждой страницы кафедры.
+        /// Общая длительность всех пауз равна [количество страниц]/threadCount*delay
+        /// </summary>
+        const int delay = 200;
+        const int threadCount = 6;
+        const string facultyLinkBak = "https://portal.esstu.ru/bakalavriat/craspisanEdt.htm";
+        const string facultyLinkMag = "https://portal.esstu.ru/spezialitet/craspisanEdt.htm";
+
         Repository repository;
 
         string logs;
-        private string facultyLinkBak = "https://portal.esstu.ru/bakalavriat/craspisanEdt.htm";
-        private string facultyLinkMag = "https://portal.esstu.ru/spezialitet/craspisanEdt.htm";
 
-        private int threadCount = 6;
-        private bool isNotepadRunning;
-
-        private Dictionary<string, SortedDictionary<string, List<List<string>>>> buildingsScheduleMap;
-        private List<string> fullClassroomsList;
-
+        /// <summary>
+        /// Проверка на запущенный блокнот со списком аудиторий, чтоб не открывался новый
+        /// </summary>
+        bool isNotepadRunning;
+        /// <summary>
+        /// Проверка на существование файла шаблона и файла аудиторий
+        /// </summary>
         bool criticalFilesDoesntExist;
+        /// <summary>
+        /// флаг для закрытия всех процессов Excel
+        /// </summary>
         bool excelInterruptFlag;
+        /// <summary>
+        /// флаг для остановки потоков по загрузке страниц
+        /// ОЧЕНЬ ВАЖНАЯ ПЕРЕМЕННАЯ
+        /// </summary>
+        bool abort;
+
+        Dictionary<string, SortedDictionary<string, List<List<string>>>> buildingsScheduleMap;
+        List<string> fullClassroomsList;
 
         Thread mainLoadThread;
         Thread excelSavingThread;
 
-        delegate Task loadDepartmentPages(object depLinksObj);
-        //List<loadDepartmentPages> depLoadThreads;
         List<Task> runningThreads;
-        bool abort;
 
         Excel.Application excelApp = null;
         Excel.Workbooks workbooks = null;
@@ -62,7 +79,6 @@ namespace Rasp
                 criticalFilesDoesntExist = false;
             }
 
-            //depLoadThreads = new List<loadDepartmentPages>();
             runningThreads = new List<Task>();
             excelSavingThread = null;
             abort = false;
@@ -100,8 +116,7 @@ namespace Rasp
 
             logs = "";
             int progress = 0;
-            int errorCount = 0;
-            int completedThreads = 0;
+            int successCompletedThreads = 0;
             int linksCount = 0;
 
             buildingsScheduleMap = new Dictionary<string, SortedDictionary<string, List<List<string>>>>
@@ -126,7 +141,7 @@ namespace Rasp
             /// 
             /// ---------------------------- ЗДЕСЬ!!!!!!!!! -----------------------------------
             /// 
-            async Task loadDepartmentPages(object depLinksObj)//List<string> depLinks)
+            async Task loadDepartmentPages(object depLinksObj)
             {
                 int localErrorCount = 0;
                 List<string> depLinks;
@@ -136,46 +151,66 @@ namespace Rasp
                 }
                 catch (Exception ex)
                 {
-                    logs += ex.Message + new StackTrace(ex, true).GetFrame(0).GetFileLineNumber() + "\r\n";
-                    errorCount++;
+                    logs += ex.Message + $"Ошибка преобразования object в List<String>: {nameof(depLinksObj)}\r\n";
                     return;
                 }
 
                 ///Загрузка и обработка всех страниц с кафедрами
                 foreach (string link in depLinks)
                 {
-                    if (abort) return;
+                    if (abort || localErrorCount > 4) return;
+                    await Task.Delay(delay);
+
+                    IEnumerable<string> splittedDepartmentPage;
                     try
                     {
-                        var splittedDepartmentPage =
+                        splittedDepartmentPage =
                             (await repository.loadDepartmentPage(link))
                                 .Replace(" COLOR=\"#0000ff\"", "")
                                 .Replace("ff00ff\">", "\a")
                                 .Split('\a')
                                 .Skip(1);
+                    }
+                    catch (Exception ex)
+                    {
+                        logs += ex.Message + $"Ошибка загрузки страницы кафедры. Ссылка: {link}\r\n";
 
+                        localErrorCount++;
+                        continue;
+                    }
+
+                    try
+                    {
                         foreach (string teacherSection in splittedDepartmentPage)
                         {
-                            string teacherName = "";
-                            try
-                            {
-                                teacherName = Regex.Match(teacherSection, "[а-я]|[А-Я].*</P>").Value.Replace("</P>", "").Trim();
-                            }
-                            catch (Exception ex)
-                            {
-                                logs += ex.Message + new StackTrace(ex, true).GetFrame(0).GetFileLineNumber() + "\r\n";
-                            }
+                            string teacherName = Regex.Match(teacherSection, "[а-я]|[А-Я].*</P>").Value.Replace("</P>", "").Trim();
 
-                            var daysOfWeekFromPage =
-                                teacherSection.Replace("SIZE=2><P ALIGN=\"CENTER\">", "\a").Split('\a').Skip(1);
+                            IEnumerable<string> daysOfWeekFromPage;
+                            if (teacherSection.Contains("SIZE=2><P ALIGN=\"CENTER\">"))
+                            {
+                                daysOfWeekFromPage = teacherSection.Replace("SIZE=2><P ALIGN=\"CENTER\">", "\a").Split('\a').Skip(1);
+                            }
+                            else
+                            {
+                                logs += $"Ошибка парсинга дней недели. Преподаватель: {teacherName}. Ссылка на кафедру: {link}\r\n";
+                                continue;
+                            }
 
                             int j = 0;
                             foreach (string dayOfWeek in daysOfWeekFromPage)
                             {
                                 if (j == 12) break;
 
-                                var lessons =
-                                    dayOfWeek.Replace("SIZE=1><P ALIGN=\"CENTER\">", "\a").Split('\a').Skip(1);
+                                IEnumerable<string> lessons;
+                                if (dayOfWeek.Contains("SIZE=1><P ALIGN=\"CENTER\">"))
+                                {
+                                    lessons = dayOfWeek.Replace("SIZE=1><P ALIGN=\"CENTER\">", "\a").Split('\a').Skip(1);
+                                }
+                                else
+                                {
+                                    logs += $"Ошибка парсинга занятий. Преподаватель: {teacherName}. Ссылка на кафедру: {link}\r\n";
+                                    continue;
+                                }
 
                                 int i = 0;
                                 foreach (string lessonSection in lessons)
@@ -188,6 +223,7 @@ namespace Rasp
                                     var fullLesson = lessonSection
                                         .Substring(0, lessonSection.IndexOf("</FONT>"))
                                         .Trim();
+                                    fullLesson = Regex.Replace(fullLesson, "си\\W+|си$|св\\W+|св$|мф\\W+|мф$", " ");
 
                                     var lesson = fullLesson
                                         .Substring(fullLesson.IndexOf("а.") + 2)
@@ -203,7 +239,6 @@ namespace Rasp
                                         : lesson;
 
                                     if (!Regex.IsMatch(classroom, "[0-9]"))
-                                    //!classroom.Contains(RegExp(r"[0-9]")))
                                     {
                                         i++;
                                         continue;
@@ -267,20 +302,26 @@ namespace Rasp
                     }
                     catch (Exception ex)
                     {
-                        logs += ex.Message + new StackTrace(ex, true).GetFrame(0).GetFileLineNumber() + "\r\n";
+                        logs += ex.Message + $"Ошибка обработки страницы кафедры. Ссылка: {link}\r\n";
 
                         localErrorCount++;
                     }
-
-                    if (localErrorCount > 4)
-                    {
-                        completedThreads++;
-                        errorCount += localErrorCount;
-                        return;
-                    }
                 }
 
-                completedThreads++;
+                successCompletedThreads++;
+            }
+
+            async void progressBar()
+            {
+                while (abort == false)
+                {
+                    await Task.Delay(1000);
+
+                    Invoke(new Action(() =>
+                    {
+                        progressBar1.Value = (int)((double)progress / (double)linksCount * 100);
+                    }));
+                }
             }
 
             try
@@ -329,32 +370,25 @@ namespace Rasp
                 {
                     await task;
                 }
-                //depLoadThreads.Clear();
                 runningThreads.Clear();
                 abort = false;
 
-                /// Собственно [threadCount] асинхронных потоков по загрузке страниц. Далее
-                /// ождиание окончания их работы с отображением прогресса.
+                /// [threadCount] асинхронных потоков по загрузке страниц. 
                 for (int iList = 0; iList < threadCount; iList++)
                 {
-                    //depLoadThreads.Add(loadDepartmentPages);
                     runningThreads.Add(loadDepartmentPages(departmentLinks[iList]));
-                    //depLoadThreads.Add(new Thread(new ParameterizedThreadStart(loadDepartmentPages)));
-                    //depLoadThreads[iList].Start(departmentLinks[iList]);
-                    //loadDepartmentPages(departmentLinks[iList]);
                 }
 
-                do
+                /// Ожидание окончания их работы с отображением прогресса.
+                progressBar();
+                foreach (var task in runningThreads)
                 {
-                    await Task.Delay(1000);
+                    await task;
+                }
 
-                    Invoke(new Action(() =>
-                    {
-                        progressBar1.Value = (int)((double)progress / (double)linksCount * 100);
-                    }));
-                } while (completedThreads < threadCount);
+                abort = true;
 
-                if (errorCount > 8)
+                if (successCompletedThreads < threadCount)
                 {
                     Invoke(new Action(() =>
                     {
@@ -393,20 +427,24 @@ namespace Rasp
                 {
                     updateButton.Enabled = true;
                 }));
-                logs += ex.Message + new StackTrace(ex, true).GetFrame(0).GetFileLineNumber() + "\r\n";
+                logs += ex.Message + "\r\n";
             }
-
-            if (logs.Length > 0)
+            finally
             {
-                using (FileStream fs = new FileStream("./log.txt", FileMode.Create))
-                {
-                    byte[] buffer = Encoding.Default.GetBytes(logs);
-                    await fs.WriteAsync(buffer, 0, buffer.Length);
-                    fs.Close();
-                    logs = "";
-                }
+                abort = true;
 
-                MessageBox.Show($"Во время загрузки расписания произошли ошибки. Подробности в log.txt", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (logs.Length > 0)
+                {
+                    using (FileStream fs = new FileStream("./log.txt", FileMode.Create))
+                    {
+                        byte[] buffer = Encoding.Default.GetBytes(logs);
+                        await fs.WriteAsync(buffer, 0, buffer.Length);
+                        fs.Close();
+                        logs = "";
+                    }
+
+                    MessageBox.Show($"Во время загрузки расписания произошли ошибки. Подробности в log.txt", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
 
