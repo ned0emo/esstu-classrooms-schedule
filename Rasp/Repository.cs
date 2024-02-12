@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -11,79 +12,42 @@ namespace SheduleSI
 {
     class Repository
     {
-        public async Task<string> loadDepartmentPage(string link)
+        readonly HttpClient client = new HttpClient
         {
-            string page = "";
+            Timeout = TimeSpan.FromSeconds(3),            
+        };
 
-            WebClient client = new WebClient
-            {
-                Encoding = Encoding.GetEncoding(1251)
-            };
-            //client.Headers.Add("user-agent", "Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 5.2; .NET CLR 1.0.3705;)");
-            Stream data = await client.OpenReadTaskAsync(link);//сайт скачивания расписания
-
-            StreamReader reader = new StreamReader(data, Encoding.GetEncoding(1251));
-            string line = await reader.ReadLineAsync();
-            while (line != null)
-            {
-                page += line + "\n";
-                line = await reader.ReadLineAsync();
-            }
-
-            data.Close();
-            reader.Close();
-
+        public async Task<string> LoadDepartmentPage(string link)
+        {
+            var response = await client.GetByteArrayAsync(link);
+            var page = Encoding.GetEncoding(1251).GetString(response, 0, response.Length);
+            
             return page;
         }
 
-        public async Task<List<String>> loadFacultiesPages(string link1, string link2 = "")
+        public async Task<string[]> LoadFacultiesPages(string link1, string link2 = "")
         {
-            string page1 = "";
-            string page2 = "";
-
-            WebClient client = new WebClient
-            {
-                Encoding = Encoding.GetEncoding(1251)
-            };
-            //client.Headers.Add("user-agent", "Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 5.2; .NET CLR 1.0.3705;)");
-            Stream data = await client.OpenReadTaskAsync(link1);//сайт скачивания расписания
-
-            StreamReader reader = new StreamReader(data, Encoding.GetEncoding(1251));
-            string line = await reader.ReadLineAsync();
-            while (line != null)
-            {
-                page1 += line + "\n";
-                line = await reader.ReadLineAsync();
-            }
-            data.Close();
-            reader.Close();
+            var response = await client.GetByteArrayAsync(link1);
+            var page1 = Encoding.GetEncoding(1251).GetString(response, 0, response.Length);
 
             if (link2.Length < 1)
             {
-                return new List<string>() { page1 };
+                return new string[] { page1 };
             }
 
-            data = await client.OpenReadTaskAsync(link1);//сайт скачивания расписания
+            var response2 = await client.GetByteArrayAsync(link2);
+            var page2 = Encoding.GetEncoding(1251).GetString(response2, 0, response2.Length);
 
-            reader = new StreamReader(data, Encoding.GetEncoding(1251));
-            line = await reader.ReadLineAsync();
-            while (line != null)
-            {
-                page2 += line + "\n";
-                line = await reader.ReadLineAsync();
-            }
-            data.Close();
-            reader.Close();
-
-            return new List<string>() { page1, page2 };// [codec.decode(pageText1), codec.decode(pageText2)];
+            return new string[] { page1, page2 };
         }
 
-        public async Task<List<string>> loadClassroomsList()
+        public async Task<List<string>> LoadClassroomsList()
         {
             string path = "./classrooms.txt";
 
             StreamReader sr = new StreamReader(path);
             var list = (await sr.ReadToEndAsync()).Split('\n').ToList();
+            sr.Close();
             list.RemoveAll(match => match.Trim().Length < 1);
             for(int i = 0; i < list.Count; i++)
             {

@@ -141,19 +141,9 @@ namespace Rasp
             /// 
             /// ---------------------------- ЗДЕСЬ!!!!!!!!! -----------------------------------
             /// 
-            async Task loadDepartmentPages(object depLinksObj)
+            async Task loadDepartmentPages(List<string> depLinks)
             {
                 int localErrorCount = 0;
-                List<string> depLinks;
-                try
-                {
-                    depLinks = depLinksObj as List<string>;
-                }
-                catch (Exception ex)
-                {
-                    logs += ex.Message + $"Ошибка преобразования object в List<String>: {nameof(depLinksObj)}\r\n";
-                    return;
-                }
 
                 ///Загрузка и обработка всех страниц с кафедрами
                 foreach (string link in depLinks)
@@ -165,7 +155,7 @@ namespace Rasp
                     try
                     {
                         splittedDepartmentPage =
-                            (await repository.loadDepartmentPage(link))
+                            (await repository.LoadDepartmentPage(link))
                                 .Replace(" COLOR=\"#0000ff\"", "")
                                 .Replace("ff00ff\">", "\a")
                                 .Split('\a')
@@ -326,7 +316,7 @@ namespace Rasp
 
             try
             {
-                var facultyPages = await repository.loadFacultiesPages(facultyLinkBak, link2: facultyLinkMag);
+                var facultyPages = await repository.LoadFacultiesPages(facultyLinkBak, link2: facultyLinkMag);
 
                 //Создания списка ссылок на кафедры
                 //
@@ -536,7 +526,7 @@ namespace Rasp
             List<string> classroomsList;
             try
             {
-                classroomsList = await repository.loadClassroomsList();
+                classroomsList = await repository.LoadClassroomsList();
             }
             catch (Exception ex)
             {
